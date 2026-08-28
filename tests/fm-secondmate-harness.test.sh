@@ -2547,9 +2547,202 @@ SH
   pass "B25 spawn quarantines stale rereads without blocking relaunch"
 }
 
+# ===========================================================================
+# D) config/secondmate-pins/<id> per-secondmate model/effort override
+# ===========================================================================
+# A per-secondmate pin overrides the global config/secondmate-harness token for
+# one secondmate id only; an unpinned axis or a different id keeps the global
+# fallback, so config/secondmate-harness stays the fleet-wide default. Rows:
+#   <label>^<harness-line-or-ABSENT>^<pin-content-or-ABSENT>^<query-id>^<expect-model>^<expect-effort>
+# The pin field expands \n via printf '%b' so a row can express a multi-line pin
+# file; ABSENT skips creating that file. The pin file is written under the queried
+# id, so these rows exercise a matching pin; id isolation and safety are covered
+# separately below.
+test_secondmate_pin_resolution() {
+  local label hline pin qid exp_model exp_effort case_dir cfg got_m got_e n
+  n=0
+  while IFS='^' read -r label hline pin qid exp_model exp_effort; do
+    [ -n "$label" ] || continue
+    n=$((n + 1))
+    case_dir="$TMP_ROOT/pin-$n"
+    cfg="$case_dir/config"
+    mkdir -p "$cfg/secondmate-pins"
+    [ "$hline" = ABSENT ] || printf '%b\n' "$hline" > "$cfg/secondmate-harness"
+    [ "$pin" = ABSENT ] || [ -z "$qid" ] || printf '%b' "$pin" > "$cfg/secondmate-pins/$qid"
+    got_m=$(CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model "$qid" 2>/dev/null)
+    got_e=$(CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-effort "$qid" 2>/dev/null)
+    [ "$got_m" = "$exp_model" ] || fail "$label: model resolved '$got_m', expected '$exp_model'"
+    [ "$got_e" = "$exp_effort" ] || fail "$label: effort resolved '$got_e', expected '$exp_effort'"
+  done <<'ROWS'
+pin overrides both global tokens^claude opus high^model claude-opus-5\neffort max\n^pr-steward^claude-opus-5^max
+pin overrides model only; effort falls back to global^claude opus high^model claude-opus-5\n^pr-steward^claude-opus-5^high
+pin overrides effort only; model falls back to global^claude opus high^effort low\n^pr-steward^opus^low
+no pin file -> global fallback^claude opus high^ABSENT^pr-steward^opus^high
+empty pin file -> global fallback^claude opus high^\n^pr-steward^opus^high
+pin applies even when the harness token is default^default^model claude-opus-5\neffort high\n^pr-steward^claude-opus-5^high
+pin applies with no secondmate-harness file at all^ABSENT^model claude-opus-5\neffort high\n^pr-steward^claude-opus-5^high
+comments and blank lines are skipped^claude opus high^# pick\n\nmodel sonnet\n^pr-steward^sonnet^high
+first occurrence of each key wins^claude opus high^model first\nmodel second\n^pr-steward^first^high
+no id passed -> global fallback only (backward-compat)^claude opus high^model sonnet\n^^opus^high
+ROWS
+  pass "D1 fm-harness.sh secondmate-model/effort <id> resolves the per-secondmate pin, else the global token"
+}
+
+# The pin is per-id, rejects malformed and unsupported values safely (a stderr
+# warning, then the global fallback), never follows a symlinked pin file, and an
+# id carrying a path separator or a ./.. component can never escape the pins dir.
+test_secondmate_pin_isolation_and_safety() {
+  local cfg out err
+  cfg="$TMP_ROOT/pin-safety/config"
+  mkdir -p "$cfg/secondmate-pins"
+  printf 'claude opus high\n' > "$cfg/secondmate-harness"
+  printf 'model sonnet\neffort low\n' > "$cfg/secondmate-pins/pr-steward"
+
+  # A different secondmate keeps the global fallback - the pin is per-id.
+  out=$(CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model docs-mate 2>/dev/null)
+  [ "$out" = opus ] || fail "isolation: docs-mate model resolved '$out', expected the global 'opus'"
+  out=$(CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-effort docs-mate 2>/dev/null)
+  [ "$out" = high ] || fail "isolation: docs-mate effort resolved '$out', expected the global 'high'"
+  out=$(CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model pr-steward 2>/dev/null)
+  [ "$out" = sonnet ] || fail "isolation: pr-steward model resolved '$out', expected its pin 'sonnet'"
+
+  # Unsupported effort value: warn to stderr, fall back to the global token.
+  printf 'effort turbo\n' > "$cfg/secondmate-pins/bad-effort"
+  err="$TMP_ROOT/pin-safety/bad-effort.err"
+  out=$(CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-effort bad-effort 2>"$err")
+  [ "$out" = high ] || fail "bad-effort: resolved '$out', expected the global fallback 'high'"
+  assert_contains "$(cat "$err")" "is not one of low, medium, high, xhigh, max" \
+    "bad-effort: no stderr warning for an unsupported effort pin"
+
+  # Malformed model value (embedded whitespace is not a single token): warn + fall back.
+  printf 'model a b c\n' > "$cfg/secondmate-pins/bad-model"
+  err="$TMP_ROOT/pin-safety/bad-model.err"
+  out=$(CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model bad-model 2>"$err")
+  [ "$out" = opus ] || fail "bad-model: resolved '$out', expected the global fallback 'opus'"
+  assert_contains "$(cat "$err")" "value is malformed" \
+    "bad-model: no stderr warning for a malformed model pin"
+
+  # A traversal id must be refused: it must NOT read a file outside the pins dir.
+  # The decoy would resolve to 'HACKED' if the id were used as a raw path.
+  printf 'model HACKED\n' > "$cfg/decoy"
+  out=$(CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model '../decoy' 2>/dev/null)
+  [ "$out" = opus ] || fail "traversal: id '../decoy' resolved '$out', expected the global fallback 'opus' (a pin lookup must not escape the pins dir)"
+
+  # A symlinked pin file is ignored, not followed.
+  printf 'model LINKED\n' > "$cfg/link-target"
+  ln -s "$cfg/link-target" "$cfg/secondmate-pins/link-sm"
+  out=$(CLAUDECODE=1 FM_CONFIG_OVERRIDE="$cfg" "$ROOT/bin/fm-harness.sh" secondmate-model link-sm 2>/dev/null)
+  [ "$out" = opus ] || fail "symlink: a symlinked pin file was followed (resolved '$out', expected the global 'opus')"
+
+  pass "D2 per-secondmate pins are id-scoped, reject malformed/unsupported values safely, ignore symlinks, and cannot escape the pins dir"
+}
+
+# A per-secondmate pin threads --model/--effort into that secondmate's launch and
+# meta, overriding the global config/secondmate-harness tokens.
+test_spawn_secondmate_pin_threads_into_launch() {
+  local w sm meta launchlog launch
+  w="$TMP_ROOT/spawn-pin"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config/secondmate-pins"
+  printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
+  printf 'model sonnet\neffort low\n' > "$w/home/config/secondmate-pins/sm"
+  make_seeded_home "$sm" sm
+
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" >/dev/null 2>&1
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" harness)" = claude ] || fail "pin: meta harness not claude"
+  [ "$(meta_field "$meta" model)" = sonnet ] \
+    || fail "pin: meta model not sonnet (got '$(meta_field "$meta" model)'); the pin did not override the global model token"
+  [ "$(meta_field "$meta" effort)" = low ] \
+    || fail "pin: meta effort not low (got '$(meta_field "$meta" effort)'); the pin did not override the global effort token"
+  launch=$(cat "$launchlog")
+  assert_contains "$launch" "--model 'sonnet'" "pin: launch did not carry the pinned --model"
+  assert_contains "$launch" "--effort 'low'" "pin: launch did not carry the pinned --effort"
+  assert_not_contains "$launch" "--model 'opus'" "pin: launch leaked the global model token"
+  pass "D3 spawn: a per-secondmate pin overrides the global model/effort tokens in the launch and meta"
+}
+
+# A secondmate with no pin of its own uses the global tokens even when ANOTHER
+# secondmate is pinned - the override is strictly per-id.
+test_spawn_unpinned_secondmate_uses_global_tokens() {
+  local w sm meta launchlog launch
+  w="$TMP_ROOT/spawn-pin-isolation"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config/secondmate-pins"
+  printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
+  printf 'model sonnet\neffort low\n' > "$w/home/config/secondmate-pins/other"
+  make_seeded_home "$sm" sm
+
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" >/dev/null 2>&1
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" model)" = opus ] \
+    || fail "pin-isolation: 'sm' used another id's pin instead of the global model (got '$(meta_field "$meta" model)')"
+  [ "$(meta_field "$meta" effort)" = high ] \
+    || fail "pin-isolation: 'sm' used another id's pin instead of the global effort (got '$(meta_field "$meta" effort)')"
+  launch=$(cat "$launchlog")
+  assert_contains "$launch" "--model 'opus'" "pin-isolation: launch did not use the global model for an unpinned secondmate"
+  pass "D4 spawn: a secondmate with no pin uses the global config/secondmate-harness tokens (per-id isolation)"
+}
+
+# An explicit per-spawn --model still overrides a per-secondmate pin; the pin's
+# other axis still applies.
+test_spawn_explicit_model_overrides_pin() {
+  local w sm meta launchlog launch
+  w="$TMP_ROOT/spawn-pin-explicit"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config/secondmate-pins"
+  printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
+  printf 'model sonnet\neffort low\n' > "$w/home/config/secondmate-pins/sm"
+  make_seeded_home "$sm" sm
+
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" --model haiku >/dev/null 2>&1
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" model)" = haiku ] \
+    || fail "explicit-over-pin: explicit --model did not win over the pin (got '$(meta_field "$meta" model)')"
+  [ "$(meta_field "$meta" effort)" = low ] || fail "explicit-over-pin: the pin's effort should still apply"
+  launch=$(cat "$launchlog")
+  assert_contains "$launch" "--model 'haiku'" "explicit-over-pin: launch did not use the explicit model"
+  assert_not_contains "$launch" "--model 'sonnet'" "explicit-over-pin: launch leaked the pinned model"
+  pass "D5 spawn: an explicit --model still overrides a per-secondmate pin; the pin's effort still applies"
+}
+
+# A malformed/unsupported pin value never breaks the spawn: it is rejected safely
+# and the global fallback launches.
+test_spawn_malformed_pin_falls_back_to_global() {
+  local w sm meta launchlog out status
+  w="$TMP_ROOT/spawn-pin-malformed"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config/secondmate-pins"
+  printf 'claude opus high\n' > "$w/home/config/secondmate-harness"
+  printf 'effort turbo\n' > "$w/home/config/secondmate-pins/sm"
+  make_seeded_home "$sm" sm
+
+  out=$(spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 0 "$status" "a malformed pin must not break the spawn"$'\n'"$out"
+
+  meta="$w/home/state/sm.meta"
+  [ "$(meta_field "$meta" effort)" = high ] \
+    || fail "malformed-pin: effort should fall back to the global 'high' (got '$(meta_field "$meta" effort)')"
+  [ "$(meta_field "$meta" model)" = opus ] || fail "malformed-pin: model should stay the global 'opus'"
+  pass "D6 spawn: a malformed/unsupported pin value is rejected safely and the global fallback launches"
+}
+
 test_harness_resolution
 test_cursor_marker_detection
 test_secondmate_model_effort_tokens
+test_secondmate_pin_resolution
+test_secondmate_pin_isolation_and_safety
+test_spawn_secondmate_pin_threads_into_launch
+test_spawn_unpinned_secondmate_uses_global_tokens
+test_spawn_explicit_model_overrides_pin
+test_spawn_malformed_pin_falls_back_to_global
 test_pi_signed_detection_and_session_lock_identity
 test_dash_leading_process_names_are_basename_operands
 test_propagate_lib

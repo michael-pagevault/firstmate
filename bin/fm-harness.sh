@@ -9,15 +9,28 @@
 #                                        defers to the crew resolution, so an unset
 #                                        secondmate-harness behaves exactly as the crew
 #                                        harness did before this knob existed.
-#        fm-harness.sh secondmate-model    print the optional MODEL token from
-#                                        config/secondmate-harness, or empty when absent.
-#        fm-harness.sh secondmate-effort   print the optional EFFORT token from
-#                                        config/secondmate-harness, or empty when absent.
+#        fm-harness.sh secondmate-model [<id>]   print the effective MODEL for a
+#                                        secondmate: a per-secondmate pin from
+#                                        config/secondmate-pins/<id> when <id> is
+#                                        given and pins a model, otherwise the
+#                                        optional MODEL token from
+#                                        config/secondmate-harness, or empty when
+#                                        neither is present.
+#        fm-harness.sh secondmate-effort [<id>]  print the effective EFFORT the
+#                                        same way (per-secondmate pin first, then
+#                                        the config/secondmate-harness token).
 # config/secondmate-harness format: a single line "<harness> [<model>] [<effort>]",
 # whitespace-separated. A bare "<harness>" (today's format) behaves exactly as before:
 # harness only, no model/effort. Only the first non-empty, non-comment line is parsed.
 # Model/effort come ONLY from this file - config/crew-harness stays a bare adapter
 # name and is never parsed for a model.
+# config/secondmate-pins/<id> is an optional per-secondmate override: one
+# "<key> <value>" per line with key "model" or "effort", '#' comments and blank
+# lines skipped, the first occurrence of each key winning. A pinned axis overrides
+# the matching config/secondmate-harness token for that one secondmate; an absent
+# or malformed pin leaves the global fallback in force. This file is the PRIMARY's
+# own config, like config/secondmate-harness, and is never inherited into a
+# secondmate home. Passing no <id> reads the global fallback only (backward-compat).
 # Detection layers: verified environment markers first, then process ancestry.
 # Record each newly verified env marker here.
 set -u
@@ -167,20 +180,77 @@ resolve_secondmate() {
   if [ -z "$sm" ] || [ "$sm" = "default" ]; then resolve_crew; else echo "$sm"; fi
 }
 
-# Print the optional model token (2nd field) from config/secondmate-harness, or
-# empty when the harness token is absent/"default" (harness-only file, same as
-# today) or when no model token is present.
+# Print the validated per-secondmate pin for one axis ($1=model|effort) of
+# secondmate $2 from config/secondmate-pins/<id>, or nothing when the id is unsafe,
+# the file is absent, the axis is not pinned, or the pinned value is malformed. A
+# malformed value warns to stderr and yields nothing so the caller falls back to
+# the config/secondmate-harness token. The id is refused when it carries a path
+# separator or is "." / ".." so a pin lookup can never escape the pins directory.
+secondmate_pin_field() {
+  local field=$1 id=$2 file line k v
+  [ -n "$field" ] && [ -n "$id" ] || return 0
+  case "$id" in
+    .|..|*/*|*[!A-Za-z0-9._-]*) return 0 ;;
+  esac
+  file="$CONFIG/secondmate-pins/$id"
+  [ -f "$file" ] && [ ! -L "$file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    [ -n "$line" ] || continue
+    case "$line" in '#'*) continue ;; esac
+    k=${line%%[[:space:]]*}
+    [ "$k" = "$field" ] || continue
+    v=${line#"$k"}
+    v="${v#"${v%%[![:space:]]*}"}"
+    v="${v%"${v##*[![:space:]]}"}"
+    # A pinned value is one token: an empty value or embedded whitespace is
+    # malformed, so warn and defer to the global fallback rather than pass a
+    # broken value downstream.
+    case "$v" in
+      ''|*[[:space:]]*)
+        printf 'warning: config/secondmate-pins/%s %s value is malformed; ignoring and using config/secondmate-harness\n' "$id" "$field" >&2
+        return 0
+        ;;
+    esac
+    if [ "$field" = effort ]; then
+      case "$v" in
+        low|medium|high|xhigh|max) ;;
+        *)
+          printf 'warning: config/secondmate-pins/%s effort value %s is not one of low, medium, high, xhigh, max; ignoring and using config/secondmate-harness\n' "$id" "$v" >&2
+          return 0
+          ;;
+      esac
+    fi
+    printf '%s\n' "$v"
+    return 0
+  done < "$file"
+  return 0
+}
+
+# Print the effective secondmate model: a per-secondmate pin from
+# config/secondmate-pins/<id> when an id is given and pins a model, otherwise the
+# optional model token (2nd field) from config/secondmate-harness, or empty when
+# the harness token is absent/"default" (harness-only file, same as today) or when
+# no model token is present.
 resolve_secondmate_model() {
-  local sm
+  local id=${1:-} pin sm
+  if [ -n "$id" ]; then
+    pin=$(secondmate_pin_field model "$id")
+    [ -z "$pin" ] || { printf '%s\n' "$pin"; return 0; }
+  fi
   sm=$(secondmate_field 1)
   [ -n "$sm" ] && [ "$sm" != "default" ] || return 0
   secondmate_field 2
 }
 
-# Print the optional effort token (3rd field) from config/secondmate-harness,
-# the same way.
+# Print the effective secondmate effort the same way: a per-secondmate pin first,
+# then the optional effort token (3rd field) from config/secondmate-harness.
 resolve_secondmate_effort() {
-  local sm
+  local id=${1:-} pin sm
+  if [ -n "$id" ]; then
+    pin=$(secondmate_pin_field effort "$id")
+    [ -z "$pin" ] || { printf '%s\n' "$pin"; return 0; }
+  fi
   sm=$(secondmate_field 1)
   [ -n "$sm" ] && [ "$sm" != "default" ] || return 0
   secondmate_field 3
@@ -189,7 +259,7 @@ resolve_secondmate_effort() {
 case "${1:-}" in
   crew) resolve_crew ;;
   secondmate) resolve_secondmate ;;
-  secondmate-model) resolve_secondmate_model ;;
-  secondmate-effort) resolve_secondmate_effort ;;
+  secondmate-model) resolve_secondmate_model "${2:-}" ;;
+  secondmate-effort) resolve_secondmate_effort "${2:-}" ;;
   *) detect_own ;;
 esac

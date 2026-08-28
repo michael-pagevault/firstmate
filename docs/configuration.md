@@ -315,7 +315,7 @@ When it is absent or contains `default`, crewmates mirror the firstmate's own ha
 The first non-empty, non-comment line is parsed as `<harness> [<model>] [<effort>]`.
 A bare `<harness>` preserves the previous behavior: harness only, with no model or effort launch flag.
 When the harness token is absent or `default`, secondmate launch falls back through `config/crew-harness` and then the primary's own harness, and no model or effort is read from that file.
-`fm-harness.sh secondmate-model` and `fm-harness.sh secondmate-effort` expose only the optional tokens from `config/secondmate-harness`; `config/crew-harness` remains a bare adapter-name file.
+`fm-harness.sh secondmate-model` and `fm-harness.sh secondmate-effort` with no id expose only the optional tokens from `config/secondmate-harness` (a secondmate id additionally consults its per-secondmate pin first, described below); `config/crew-harness` remains a bare adapter-name file.
 Changing this pin affects the next secondmate spawn or control-plane relaunch; the relaunch profile rules are owned by [`docs/agent-control.md`](agent-control.md#transactional-relaunch).
 An explicit harness argument to `fm-spawn.sh` still overrides either config file for that spawn only.
 An explicit `--model` or `--effort` overrides the matching token from `config/secondmate-harness`; for a local route, an explicit harness or raw launch command starts with clean model and effort defaults unless those flags are also passed.
@@ -324,6 +324,17 @@ When `config/crew-dispatch.json` exists, crewmate and scout spawns require an ex
 The inherited-local-material contract is owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); its harness-relevant consequence is that a secondmate's own crewmates use the primary's dispatch profiles and static harness value.
 Those inherited values are defaults and rules only; `fm-spawn` still permits a consciously chosen explicit runtime outside the config.
 `config/secondmate-harness` is not inherited because secondmates do not launch secondmates.
+
+`config/secondmate-pins/<id>` is an optional per-secondmate override that pins the model and/or effort for one registered secondmate, where `<id>` is that secondmate's registry id (for example `config/secondmate-pins/pr-steward`).
+It is a local, gitignored file holding one `<key> <value>` per line, with key `model` or `effort`; blank lines and `#` comments are skipped, and the first occurrence of each key wins.
+A pinned axis overrides the matching `config/secondmate-harness` token for that one secondmate, while any unpinned axis and every other secondmate keep the global `config/secondmate-harness` value, so `config/secondmate-harness` remains the fleet-wide fallback.
+A pinned model or effort applies even when `config/secondmate-harness` is absent or `default`, because the pin is independent of where the harness resolves from.
+`fm-harness.sh secondmate-model <id>` and `fm-harness.sh secondmate-effort <id>` resolve the pin first and fall back to the `config/secondmate-harness` token; passing no id reads the global fallback only.
+An `effort` value must be one of `low`, `medium`, `high`, `xhigh`, `max`, and a `model` value must be a single token; a malformed or unsupported pin is rejected safely, emitting a warning and falling back to the global value rather than launching on a broken choice.
+The pin resolves on every secondmate spawn and every control-plane relaunch, so it survives recovery and relaunch exactly as the harness pin does, and an explicit per-spawn `--model` or `--effort` still overrides it.
+An id containing a path separator or a `.`/`..` component is refused so a pin lookup can never escape the pins directory.
+Like `config/secondmate-harness`, `config/secondmate-pins/` is the primary's own config and is never inherited into a secondmate home, because secondmates do not launch secondmates.
+
 For grok, `fm-spawn.sh` installs one firstmate-owned global turn-end hook under `$GROK_HOME/hooks/`, or `~/.grok/hooks/` when `GROK_HOME` is unset, and drops a per-task `.fm-grok-turnend` pointer in the worktree, with teardown removing the task token and pointer.
 For Kimi crews, `fm-spawn.sh` runs `fm-kimi-turnend-hook.sh install`, drops a per-task `.fm-kimi-turnend` pointer in the worktree, and records the matching private registry token for teardown.
 Kimi continues to use the captain's normal Kimi home, including the existing config, skills, and memory; Firstmate does not create an isolated Kimi home.
