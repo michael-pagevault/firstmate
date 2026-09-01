@@ -273,7 +273,22 @@ a { color: inherit; text-decoration: none; }
   border-radius: var(--radius-md); transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
 }
 .bb-opt:hover { border-color: hsl(var(--primary) / 0.45); background: hsl(var(--primary) / 0.04); }
-.bb-opt input { accent-color: hsl(var(--primary)); margin-top: 3px; flex: none; }
+/* Custom radio: appearance:none replaces the native OS widget with a themed
+   dot. Checked = primary ring, surface gap, primary center (inset shadow over a
+   primary fill), matching the accent the rest of the card uses. */
+.bb-opt input {
+  appearance: none; -webkit-appearance: none;
+  width: 16px; height: 16px; margin: 3px 0 0; flex: none; cursor: pointer;
+  border: 1.5px solid hsl(var(--border-strong)); border-radius: var(--radius-pill);
+  background: hsl(var(--surface)); transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+.bb-opt:hover input { border-color: hsl(var(--primary) / 0.55); }
+.bb-opt input:checked {
+  border-color: hsl(var(--primary)); background: hsl(var(--primary));
+  box-shadow: inset 0 0 0 3px hsl(var(--surface));
+}
+.bb-opt input:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.bb-opt input:checked:focus-visible { box-shadow: inset 0 0 0 3px hsl(var(--surface)), var(--focus-ring); }
 .bb-opt__body { min-width: 0; flex: 1 1 auto; }
 .bb-opt__label { display: block; font-size: var(--fs-sm); font-weight: 600; color: hsl(var(--foreground)); line-height: 1.3; }
 .bb-opt__hint { display: block; font-size: var(--fs-xs); color: hsl(var(--muted-foreground)); line-height: 1.35; margin-top: 2px; }
@@ -325,8 +340,22 @@ a { color: inherit; text-decoration: none; }
 
 /* ---- Charted Next dispatch picker ---- */
 /* margin:0 kills the UA default checkbox margin so picker rows and spacer rows
-   share one text left edge */
-.bb-pick { accent-color: hsl(var(--primary)); width: 16px; height: 16px; flex: none; cursor: pointer; margin: 0; }
+   share one text left edge. Custom checkbox: appearance:none replaces the native
+   OS widget with a themed square; checked = primary fill, rounded corners, and a
+   primary-foreground checkmark, matching the accent used across the board. */
+.bb-pick {
+  appearance: none; -webkit-appearance: none;
+  width: 16px; height: 16px; flex: none; cursor: pointer; margin: 0;
+  border: 1.5px solid hsl(var(--border-strong)); border-radius: var(--radius-xs);
+  background: hsl(var(--surface)); transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+.bb-pick:hover { border-color: hsl(var(--primary) / 0.55); }
+.bb-pick:checked {
+  border-color: hsl(var(--primary)); background: hsl(var(--primary));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23ffffff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: center; background-size: 14px 14px;
+}
+.bb-pick:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .bb-pick-spacer { width: 16px; flex: none; }
 .bb-dispatch {
   display: flex; align-items: center; gap: 12px; padding: 13px 18px;
