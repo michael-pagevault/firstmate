@@ -1,0 +1,118 @@
+{
+  "schema": "fm-bearings-board.v1",
+  "home": "evidence-home",
+  "generated": "2026-09-02T09:00Z",
+  "prs_live": false,
+  "captains_call": [
+    {
+      "key": "sample-instruction-layer-refinement-review-decision-perishable-first-admission-choice",
+      "type": "decision",
+      "repo": "sample",
+      "title": "Perishable-first admission",
+      "about": "A payload string that tries to break out: </script><b>x</b>",
+      "decide": "Adopt it?",
+      "options": [
+        {
+          "value": "yes",
+          "label": "Adopt",
+          "hint": "recommended"
+        },
+        {
+          "value": "no",
+          "label": "Keep current"
+        }
+      ],
+      "allow_freeform": true
+    },
+    {
+      "key": "merge.sample-task",
+      "type": "merge",
+      "repo": "sample",
+      "title": "Merge: sample change",
+      "detail": "validation green",
+      "task_id": "sample-task",
+      "pr_url": "https://github.com/example/sample/pull/1",
+      "checks": "green",
+      "risk": "low",
+      "options": [
+        {
+          "value": "merge",
+          "label": "Merge now"
+        },
+        {
+          "value": "hold",
+          "label": "Not yet"
+        }
+      ],
+      "allow_freeform": true
+    }
+  ],
+  "underway": [
+    {
+      "id": "u1",
+      "repo": "acme/web",
+      "state": "working",
+      "doing": "writing the cache-race regression test",
+      "kind": "work"
+    }
+  ],
+  "landed": [
+    {
+      "id": "l1",
+      "repo": "acme/api",
+      "what": "Timeout root-cause investigation",
+      "owner": "scout"
+    }
+  ],
+  "charted": [
+    {
+      "id": "c1",
+      "repo": "acme/web",
+      "title": "Migrate session store",
+      "reason": "",
+      "dispatchable": true
+    }
+  ],
+  "updates": [
+    {
+      "id": "probe",
+      "repo": "acme/api",
+      "category": "investigation",
+      "headline": "Traced the request timeout to the retry loop",
+      "detail": "Retries were compounding under back-pressure; the scout report has the call path."
+    },
+    {
+      "id": "val",
+      "repo": "acme/web",
+      "category": "validation",
+      "headline": "Validation surfaced a race in the cache warmup",
+      "detail": "Two workers can both miss and both write; fix underway."
+    },
+    {
+      "id": "blk",
+      "repo": "acme/web",
+      "category": "blocker",
+      "headline": "Newly blocked on a missing staging API key"
+    },
+    {
+      "id": "dec",
+      "repo": "acme/api",
+      "category": "decision",
+      "headline": "You resolved: ship the retry fix behind a flag"
+    },
+    {
+      "id": "ship",
+      "repo": "acme/api",
+      "category": "pr-ready",
+      "headline": "Retry fix is PR-ready and green",
+      "pr_url": "https://github.com/acme/api/pull/77"
+    },
+    {
+      "id": "mile",
+      "repo": null,
+      "category": "milestone",
+      "headline": "Fleet-wide test lane now runs serial on macOS"
+    }
+  ],
+  "updates_more": 2
+}
