@@ -4,7 +4,9 @@
 //
 // Usage: node board-render-harness.mjs <built-board.html>
 // Prints one JSON document: { stats:[{n,label}], charted:[{title,sub,badges,pickable}],
-// underway:[{title,sub,badges}], landed:[{title,sub,badges,hasPr}], empty, more, error }
+// underway:[{title,sub,badges}], landed:[{title,sub,badges,hasPr}],
+// updates:[{headline,repo,detail,badges,hasPr}], updatesEmpty, updatesMore,
+// empty, more, error }
 import { readFileSync } from "node:fs";
 
 const html = readFileSync(process.argv[2], "utf8");
@@ -114,6 +116,26 @@ const underway = rowsOf("bb-underway");
 const landed = rowsOf("bb-landed", (row) => ({
   hasPr: row.children.some((c) => c.className.includes("bb-row__pr")),
 }));
+// Meaningful Updates renders as cards (not bb-row), so read them directly.
+const updatesNode = byId.get("bb-updates") || new Node("div");
+const updates = updatesNode.children
+  .filter((c) => c.className.split(/\s+/).includes("bb-update"))
+  .map((card) => {
+    const top = card.children.find((c) => c.className.includes("bb-update__top")) || new Node("div");
+    return {
+      headline: card.children.find((c) => c.className.includes("bb-update__headline"))?.textContent ?? "",
+      repo: top.children.find((c) => c.className.includes("bb-update__repo"))?.textContent ?? "",
+      detail: card.children.find((c) => c.className.includes("bb-update__detail"))?.textContent ?? "",
+      badges: badgesOf(top),
+      hasPr: card.children.some((c) => c.className.includes("bb-update__pr")),
+    };
+  });
+const updatesEmpty = updatesNode.children
+  .filter((c) => c.className.includes("bb-update-empty"))
+  .map((c) => c.textContent);
+const updatesMore = updatesNode.children
+  .filter((c) => c.className.includes("bb-morechip"))
+  .map((c) => c.textContent);
 // A fail-closed render replaces the page body instead of the board sections, so
 // surface it rather than reporting an empty board as a successful render.
 const errorText = [...byId.entries()]
@@ -124,4 +146,4 @@ const chNode = byId.get("bb-charted") || new Node("div");
 const empty = chNode.children.filter((c) => c.className.includes("bb-empty")).map((c) => c.textContent);
 const more = chNode.children.filter((c) => c.className.includes("bb-morechip")).map((c) => c.textContent);
 
-process.stdout.write(JSON.stringify({ stats, charted, underway, landed, empty, more, error: errorText }) + "\n");
+process.stdout.write(JSON.stringify({ stats, charted, underway, landed, updates, updatesEmpty, updatesMore, empty, more, error: errorText }) + "\n");

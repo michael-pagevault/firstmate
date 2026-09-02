@@ -342,6 +342,27 @@ a { color: inherit; text-decoration: none; }
 }
 .bb-empty { padding: 18px; font-size: var(--fs-sm); color: hsl(var(--muted-foreground)); }
 
+/* ---- Meaningful Updates: a readable feed of substantive outcomes ---- */
+.bb-updates { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; min-width: 0; }
+.bb-update {
+  display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; min-width: 0;
+  background: hsl(var(--surface)); border: 1px solid hsl(var(--border));
+  border-left: 3px solid hsl(var(--primary) / 0.55); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm); transition: transform 140ms ease, box-shadow 140ms ease;
+}
+.bb-update:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.bb-update__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.bb-update__repo { font-family: var(--font-mono); font-size: var(--fs-2xs); color: hsl(var(--faint));
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.bb-update__headline { font-size: var(--fs-sm); font-weight: 600; color: hsl(var(--foreground)); line-height: 1.35; }
+.bb-update__detail { font-size: var(--fs-xs); color: hsl(var(--muted-foreground)); line-height: 1.45; }
+.bb-update__pr { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 600;
+  color: hsl(var(--sky-fg)); white-space: nowrap; align-self: flex-start; }
+.bb-update__pr:hover { text-decoration: underline; }
+.bb-update-empty { padding: 18px; font-size: var(--fs-sm); color: hsl(var(--muted-foreground)); }
+/* the empty state and the "+N more" chip span the full card grid */
+.bb-updates > .bb-update-empty, .bb-updates > .bb-morechip { grid-column: 1 / -1; margin: 0; }
+
 /* ---- Charted Next dispatch picker ---- */
 /* margin:0 kills the UA default checkbox margin so picker rows and spacer rows
    share one text left edge. Custom checkbox: appearance:none replaces the native
@@ -441,6 +462,18 @@ a { color: inherit; text-decoration: none; }
     </div>
   </section>
   </div>
+
+  <section class="bb-section">
+    <div class="bb-section__head">
+      <span class="fm-sign fm-sign--eyebrow">
+        <svg class="fm-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M9 13h6"/><path d="M9 17h3"/></svg>
+        Meaningful Updates
+      </span>
+      <span class="fm-sign fm-sign--muted" id="bb-updates-sub"></span>
+    </div>
+    <p class="bb-section__desc">Substantive outcomes worth catching up on - completed investigations, material validation findings, newly surfaced blockers, resolved decisions, and PR-ready or other milestones. Routine progress is left out.</p>
+    <div class="bb-updates" id="bb-updates"></div>
+  </section>
 
   <div class="bb-cols">
     <section class="bb-section">
@@ -542,6 +575,15 @@ __FM_BEARINGS_BOARD_DATA__
   function chartedQueued(rows) { return (rows || []).filter(function (t) { return !isWarning(t); }); }
   var chartedMoreQueued = data.charted_more || 0;
   var chartedMoreWarnings = data.charted_warning_more || 0;
+  /* Meaningful Updates is an optional, additive card stream; an older or simpler
+     payload without it renders the section's empty state rather than failing. */
+  var updates = Array.isArray(data.updates) ? data.updates : [];
+  var updatesMore = data.updates_more || 0;
+  /* Category -> badge tone so each update reads at a glance without prose. */
+  var UPDATE_TONE = {
+    investigation: "info", validation: "online", blocker: "danger",
+    decision: "solid", "pr-ready": "online", milestone: "solid"
+  };
   function utf8ByteLength(text) { return new TextEncoder().encode(text).length; }
   var CHECK_SVG = '<svg class="fm-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 
@@ -553,6 +595,7 @@ __FM_BEARINGS_BOARD_DATA__
     { n: callTotal, l: "need you", call: true },
     { n: data.underway.length, l: "underway" },
     { n: data.landed.length, l: "landed recently" },
+    { n: updates.length + updatesMore, l: "updates" },
     { n: chartedQueued(data.charted).length + chartedMoreQueued, l: "charted next" }
   ];
   var strip = document.getElementById("bb-stats");
@@ -745,6 +788,32 @@ __FM_BEARINGS_BOARD_DATA__
     }
     ld.appendChild(row);
   });
+
+  /* Meaningful Updates: a read-only feed of substantive outcomes */
+  var up = document.getElementById("bb-updates");
+  if (!updates.length) up.appendChild(el("div", "bb-update-empty", "No meaningful updates in the current baseline."));
+  updates.forEach(function (u) {
+    var card = el("div", "bb-update");
+    var top = el("div", "bb-update__top");
+    top.appendChild(badge(UPDATE_TONE[u.category] || "neutral", u.category));
+    /* captain-facing cards name the repo; the internal id shows only when no
+       repo is known */
+    top.appendChild(el("span", "bb-update__repo", u.repo || u.id));
+    card.appendChild(top);
+    card.appendChild(el("div", "bb-update__headline", u.headline));
+    if (u.detail) card.appendChild(el("div", "bb-update__detail", u.detail));
+    if (u.pr_url) {
+      var a = el("a", "bb-update__pr", "#" + u.pr_url.split("/").pop());
+      a.href = u.pr_url; a.title = u.pr_url; a.target = "_blank"; a.rel = "noopener";
+      card.appendChild(a);
+    }
+    up.appendChild(card);
+  });
+  if (updatesMore) {
+    up.appendChild(el("span", "bb-morechip", "+" + updatesMore + " more update" + (updatesMore === 1 ? "" : "s") + " - ask firstmate for the full stream"));
+  }
+  document.getElementById("bb-updates-sub").textContent =
+    updatesMore ? "showing " + updates.length + " of " + (updates.length + updatesMore) : "";
 
   /* Charted Next + dispatch picker */
   var ch = document.getElementById("bb-charted");

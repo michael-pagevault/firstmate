@@ -36,6 +36,17 @@
 # the template may display the routing id. Anything else refuses before the
 # existing board is touched.
 #
+# The optional `updates` array is the Meaningful Updates card stream: substantive
+# report or milestone outcomes that help the captain resume (a completed
+# investigation, a material validation finding, a newly surfaced blocker, a
+# resolved decision, a PR-ready outcome, or another milestone). It is separate
+# from Captain's Call and the operational sections and never carries an answer
+# control. Each item carries `repo`, a nonempty `id`, a nonempty `headline`, a
+# `category` (investigation, validation, blocker, decision, pr-ready, milestone),
+# and optionally a `detail` string and an https `pr_url`. `updates_more` is the
+# optional count of omitted update cards. The composer selects only substantive,
+# de-duplicated outcomes; routine progress and repeated status never appear.
+#
 # The board path is stable - $FM_HOME/.lavish/bearings-board.html - so a
 # re-invocation rebuilds the same file in place, which keeps the same Lavish
 # session URL and the same canonical process-event source id. Injection escapes
@@ -116,6 +127,13 @@ validate_payload() {  # <data.json>
       and (.dispatchable | type == "boolean")
       and ((has("kind") | not) or (.kind == "queued" or .kind == "warning"))
       and (if .kind == "warning" then .dispatchable == false else true end);
+    def update_item:
+      type == "object" and repo_marker and (.id | nonempty_string)
+      and (.headline | nonempty_string)
+      and (.category == "investigation" or .category == "validation" or .category == "blocker"
+        or .category == "decision" or .category == "pr-ready" or .category == "milestone")
+      and (optional_string("detail"))
+      and (optional_https_url("pr_url"));
     type == "object"
     and (.schema == $schema)
     and (.home | nonempty_string)
@@ -129,6 +147,9 @@ validate_payload() {  # <data.json>
       or ((.charted_more | type == "number") and (.charted_more >= 0) and (.charted_more | floor == .)))
     and ((has("charted_warning_more") | not)
       or ((.charted_warning_more | type == "number") and (.charted_warning_more >= 0) and (.charted_warning_more | floor == .)))
+    and ((has("updates") | not) or ((.updates | type == "array") and ([.updates[] | update_item] | all)))
+    and ((has("updates_more") | not)
+      or ((.updates_more | type == "number") and (.updates_more >= 0) and (.updates_more | floor == .)))
     and ([.captains_call[] | call_item] | all)
     and ([.underway[] | underway_item] | all)
     and ([.landed[] | landed_item] | all)
