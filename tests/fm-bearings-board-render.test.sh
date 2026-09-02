@@ -29,25 +29,29 @@ make_home() {  # <name>
 # Build the board from explicit section lists and return what the renderer
 # produced, so every category badge is asserted through the real template.
 # Unused sections default to [] so a test names only the rows it cares about.
-render() {  # <home> [--underway <json>] [--landed <json>] [--charted <json>] [--more <n>] [--warning-more <n>]
-  local home=$1 underway='[]' landed='[]' charted='[]' more=0 warning_more=0 data="$1/payload.json"
+render() {  # <home> [--underway <json>] [--landed <json>] [--charted <json>] [--updates <json>] [--more <n>] [--warning-more <n>] [--updates-more <n>]
+  local home=$1 underway='[]' landed='[]' charted='[]' updates='[]' more=0 warning_more=0 updates_more=0 data="$1/payload.json"
   shift
   while [ $# -gt 0 ]; do
     case $1 in
       --underway) underway=$2 ;;
       --landed) landed=$2 ;;
       --charted) charted=$2 ;;
+      --updates) updates=$2 ;;
       --more) more=$2 ;;
       --warning-more) warning_more=$2 ;;
+      --updates-more) updates_more=$2 ;;
       *) fail "render: unknown option $1" ;;
     esac
     shift 2
   done
   jq -n --argjson underway "$underway" --argjson landed "$landed" --argjson charted "$charted" \
-    --argjson more "$more" --argjson warning_more "$warning_more" '{
+    --argjson updates "$updates" --argjson more "$more" --argjson warning_more "$warning_more" \
+    --argjson updates_more "$updates_more" '{
     schema:"fm-bearings-board.v1", home:"render-home", generated:"2026-08-26T00:00Z",
     prs_live:false, captains_call:[], underway:$underway, landed:$landed,
-    charted:$charted, charted_more:$more, charted_warning_more:$warning_more}' > "$data"
+    charted:$charted, charted_more:$more, charted_warning_more:$warning_more,
+    updates:$updates, updates_more:$updates_more}' > "$data"
   PATH="$home/fakebin:$PATH" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
@@ -201,8 +205,79 @@ test_underway_rows_badge_their_current_state() {
   pass "underway rows badge active work and validation/monitoring distinctly"
 }
 
+test_meaningful_updates_render_each_category_with_context_and_are_read_only() {
+  local home out
+  home=$(make_home updates-stream)
+  out=$(render "$home" --updates '[
+    {"id":"probe","repo":"acme/api","category":"investigation","headline":"Traced the timeout to the retry loop","detail":"see the scout report for the call path"},
+    {"id":"val","repo":"acme/web","category":"validation","headline":"Validation surfaced a race in the cache"},
+    {"id":"blk","repo":"acme/web","category":"blocker","headline":"Newly blocked on a missing API key"},
+    {"id":"ship","repo":"acme/api","category":"pr-ready","headline":"Fix is PR-ready and green","pr_url":"https://github.com/acme/api/pull/77"}
+  ]')
+  printf '%s' "$out" | jq -e '.error == ""' >/dev/null \
+    || fail "the board rendered its fail-closed error instead of the fleet: $out"
+  printf '%s' "$out" | jq -e '
+    (.updates | length) == 4
+      and (.updates[0] | .headline == "Traced the timeout to the retry loop"
+        and .repo == "acme/api" and .detail != ""
+        and [.badges[] | .text] == ["investigation"] and [.badges[] | .tone] == ["info"]
+        and .hasPr == false)
+      and ([.updates[1].badges[] | .tone] == ["online"])
+      and ([.updates[2].badges[] | .tone] == ["danger"])
+      and (.updates[3] | [.badges[] | .text] == ["pr-ready"] and .hasPr == true)
+      and (.stats[] | select(.label == "updates") | .n) == 4
+  ' >/dev/null || fail "the updates stream did not render its cards, badges, context, or count: $out"
+  pass "meaningful updates render per category with context and no answer control"
+}
+
+test_meaningful_updates_show_an_empty_state_and_omitted_count() {
+  local home out
+  home=$(make_home updates-empty)
+  out=$(render "$home")
+  printf '%s' "$out" | jq -e '
+    (.updates | length) == 0
+      and (.updatesEmpty | length) == 1
+      and (.updatesEmpty[0] | test("No meaningful updates"))
+      and (.stats[] | select(.label == "updates") | .n) == 0
+  ' >/dev/null || fail "an updates-free board did not show its empty state: $out"
+
+  out=$(render "$home" --updates '[
+    {"id":"one","repo":"acme/api","category":"milestone","headline":"Shipped the migration"}
+  ]' --updates-more 3)
+  printf '%s' "$out" | jq -e '
+    (.updates | length) == 1
+      and (.updatesMore | length) == 1
+      and (.updatesMore[0] | test("more updates"))
+      and (.stats[] | select(.label == "updates") | .n) == 4
+  ' >/dev/null || fail "omitted updates were not disclosed or counted: $out"
+  pass "meaningful updates render an empty state and disclose omitted cards"
+}
+
+test_a_board_without_the_updates_field_still_renders() {
+  local home data out
+  home=$(make_home updates-absent)
+  data="$home/payload.json"
+  jq -n '{
+    schema:"fm-bearings-board.v1", home:"render-home", generated:"2026-08-26T00:00Z",
+    prs_live:false, captains_call:[], underway:[], landed:[], charted:[]}' > "$data"
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
+    "$BOARD" build "$data" >/dev/null || fail "a board without updates did not build"
+  out=$(node "$HARNESS" "$home/.lavish/bearings-board.html") \
+    || fail "a board without updates could not be rendered"
+  printf '%s' "$out" | jq -e '
+    .error == "" and (.updates | length) == 0
+      and (.updatesEmpty[0] | test("No meaningful updates"))
+  ' >/dev/null || fail "a board without the updates field did not render the empty stream: $out"
+  pass "a payload without an updates field renders the empty updates stream"
+}
+
 test_a_warning_row_reads_as_a_repair_not_as_queued_work
 test_warnings_are_excluded_from_the_charted_next_count
+test_meaningful_updates_render_each_category_with_context_and_are_read_only
+test_meaningful_updates_show_an_empty_state_and_omitted_count
+test_a_board_without_the_updates_field_still_renders
 test_a_board_of_only_warnings_still_reports_nothing_queued
 test_omitted_warnings_never_count_as_more_queued
 test_gated_and_actionable_queued_work_badge_differently
