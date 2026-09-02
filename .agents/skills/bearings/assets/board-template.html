@@ -793,8 +793,8 @@ __FM_BEARINGS_BOARD_DATA__
     /* Three visibly distinct categories: an alarm to repair, work held on a
        dependency or date, and actionable work ready to dispatch right now. */
     if (isWarning(t)) row.appendChild(badge("danger", "needs repair"));
-    else if (t.reason) row.appendChild(badge("warn", "waiting"));
-    else if (t.dispatchable) row.appendChild(badge("online", "ready"));
+    else if (t.dispatchable && !t.reason) row.appendChild(badge("online", "ready"));
+    else row.appendChild(badge("warn", "waiting"));
     ch.appendChild(row);
   });
   var chartedShown = chartedQueued(data.charted).length;
