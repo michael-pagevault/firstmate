@@ -213,6 +213,10 @@ a { color: inherit; text-decoration: none; }
 
 .bb-section { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .bb-section__head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+/* One-line, self-explanatory gloss on what a section's rows mean, so the board
+   reads without prior context. Sits directly under the eyebrow, above the card,
+   and pulls up tight against the 12px section gap so head + desc read as a unit. */
+.bb-section__desc { margin: -4px 0 0; font-size: var(--fs-xs); color: hsl(var(--muted-foreground)); line-height: 1.4; }
 .bb-cols { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 22px; }
 
 /* ---- Captain's Call: one card at a time, dealt off a visible stack ---- */
@@ -423,6 +427,7 @@ a { color: inherit; text-decoration: none; }
       </span>
       <span class="fm-sign fm-sign--muted" id="bb-charted-sub"></span>
     </div>
+    <p class="bb-section__desc">Queued, blocked, or date-gated work not yet started - <strong>ready</strong> items can dispatch now, <strong>waiting</strong> items are held on a dependency or date, and <strong>needs repair</strong> flags a fleet-integrity notice.</p>
     <div class="fm-card fm-card--warm">
       <div class="bb-rows" id="bb-charted"></div>
       <div class="bb-dispatch" id="bb-dispatch" hidden>
@@ -445,6 +450,7 @@ a { color: inherit; text-decoration: none; }
           Underway
         </span>
       </div>
+      <p class="bb-section__desc">Active work progressing now - live implementation, validation runs, and PR checks being watched. Each row's badge names its current state.</p>
       <div class="fm-card"><div class="bb-rows" id="bb-underway"></div></div>
     </section>
 
@@ -455,6 +461,7 @@ a { color: inherit; text-decoration: none; }
           Recently Landed
         </span>
       </div>
+      <p class="bb-section__desc">Completed work from the recent baseline - a <strong>merged PR</strong> badge marks shipped code, <strong>completed</strong> marks a finished investigation or other delivered work.</p>
       <div class="fm-card"><div class="bb-rows" id="bb-landed"></div></div>
     </section>
   </div>
@@ -727,6 +734,10 @@ __FM_BEARINGS_BOARD_DATA__
     main.appendChild(el("div", "bb-row__title", t.what));
     main.appendChild(el("div", "bb-row__sub", (t.repo || t.id) + " · " + t.owner));
     row.appendChild(main);
+    /* A landed row is either shipped code (a merged PR) or another finished
+       deliverable - a completed investigation, a local-only merge - and only a
+       merged PR carries pr_url, so that is the honest categoriser. */
+    row.appendChild(badge(t.pr_url ? "info" : "neutral", t.pr_url ? "merged PR" : "completed"));
     if (t.pr_url) {
       var a = el("a", "bb-row__pr", "#" + t.pr_url.split("/").pop());
       a.href = t.pr_url; a.title = t.pr_url; a.target = "_blank"; a.rel = "noopener";
@@ -779,8 +790,11 @@ __FM_BEARINGS_BOARD_DATA__
     var chSub = t.repo || t.id;
     main.appendChild(el("div", "bb-row__sub", t.reason ? t.reason + " · " + chSub : chSub));
     row.appendChild(main);
+    /* Three visibly distinct categories: an alarm to repair, work held on a
+       dependency or date, and actionable work ready to dispatch right now. */
     if (isWarning(t)) row.appendChild(badge("danger", "needs repair"));
-    else if (t.reason) row.appendChild(badge("warn", "waiting"));
+    else if (t.dispatchable && !t.reason) row.appendChild(badge("online", "ready"));
+    else row.appendChild(badge("warn", "waiting"));
     ch.appendChild(row);
   });
   var chartedShown = chartedQueued(data.charted).length;

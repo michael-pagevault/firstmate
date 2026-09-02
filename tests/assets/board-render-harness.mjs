@@ -3,7 +3,8 @@
 // asserted through the real template rather than by reading its source.
 //
 // Usage: node board-render-harness.mjs <built-board.html>
-// Prints one JSON document: { stats:[{n,label}], charted:[{title,sub,badges,pickable}] }
+// Prints one JSON document: { stats:[{n,label}], charted:[{title,sub,badges,pickable}],
+// underway:[{title,sub,badges}], landed:[{title,sub,badges,hasPr}], empty, more, error }
 import { readFileSync } from "node:fs";
 
 const html = readFileSync(process.argv[2], "utf8");
@@ -93,25 +94,34 @@ const stats = strip.children.map((t) => ({
   label: t.children.find((c) => c.className.includes("bb-stat__label"))?.textContent,
 }));
 
-const ch = byId.get("bb-charted") || new Node("div");
-const charted = ch.children
-  .filter((r) => r.className.split(/\s+/).includes("bb-row"))
-  .map((row) => {
-    const main = row.children.find((c) => c.className.includes("bb-row__main"));
-    return {
-      title: main?.children.find((c) => c.className.includes("bb-row__title"))?.textContent ?? "",
-      sub: main?.children.find((c) => c.className.includes("bb-row__sub"))?.textContent ?? "",
-      badges: badgesOf(row),
-      pickable: row.children.some((c) => c.className.includes("bb-pick") && !c.className.includes("spacer")),
-    };
-  });
+const rowsOf = (containerId, extra) =>
+  (byId.get(containerId) || new Node("div")).children
+    .filter((r) => r.className.split(/\s+/).includes("bb-row"))
+    .map((row) => {
+      const main = row.children.find((c) => c.className.includes("bb-row__main"));
+      return {
+        title: main?.children.find((c) => c.className.includes("bb-row__title"))?.textContent ?? "",
+        sub: main?.children.find((c) => c.className.includes("bb-row__sub"))?.textContent ?? "",
+        badges: badgesOf(row),
+        ...(extra ? extra(row) : {}),
+      };
+    });
+
+const charted = rowsOf("bb-charted", (row) => ({
+  pickable: row.children.some((c) => c.className.includes("bb-pick") && !c.className.includes("spacer")),
+}));
+const underway = rowsOf("bb-underway");
+const landed = rowsOf("bb-landed", (row) => ({
+  hasPr: row.children.some((c) => c.className.includes("bb-row__pr")),
+}));
 // A fail-closed render replaces the page body instead of the board sections, so
 // surface it rather than reporting an empty board as a successful render.
 const errorText = [...byId.entries()]
   .filter(([k]) => k.startsWith("sel:"))
   .flatMap(([, n]) => n.children.map((c) => c.textContent))
   .join(" ");
-const empty = ch.children.filter((c) => c.className.includes("bb-empty")).map((c) => c.textContent);
-const more = ch.children.filter((c) => c.className.includes("bb-morechip")).map((c) => c.textContent);
+const chNode = byId.get("bb-charted") || new Node("div");
+const empty = chNode.children.filter((c) => c.className.includes("bb-empty")).map((c) => c.textContent);
+const more = chNode.children.filter((c) => c.className.includes("bb-morechip")).map((c) => c.textContent);
 
-process.stdout.write(JSON.stringify({ stats, charted, empty, more, error: errorText }) + "\n");
+process.stdout.write(JSON.stringify({ stats, charted, underway, landed, empty, more, error: errorText }) + "\n");
