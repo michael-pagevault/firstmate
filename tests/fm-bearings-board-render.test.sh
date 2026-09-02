@@ -41,6 +41,23 @@ render() {  # <home> <charted-json> [charted_more] [charted_warning_more]
     || fail "the built board could not be rendered"
 }
 
+# Build a board from explicit underway/landed lists (charted empty) and return
+# what the renderer produced, so the section category badges are asserted
+# through the real template.
+render_sections() {  # <home> <underway-json> <landed-json>
+  local home=$1 underway=$2 landed=$3 data="$1/payload.json"
+  jq -n --argjson underway "$underway" --argjson landed "$landed" '{
+    schema:"fm-bearings-board.v1", home:"render-home", generated:"2026-08-26T00:00Z",
+    prs_live:false, captains_call:[], underway:$underway, landed:$landed,
+    charted:[], charted_more:0, charted_warning_more:0}' > "$data"
+  PATH="$home/fakebin:$PATH" FM_HOME="$home" \
+    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
+    FM_PROCEVENT_CLAIM_ROOT="$home/procevent-claims" \
+    "$BOARD" build "$data" >/dev/null || fail "the board did not build"
+  node "$HARNESS" "$home/.lavish/bearings-board.html" \
+    || fail "the built board could not be rendered"
+}
+
 charted_next_count() {  # <render-json>
   printf '%s' "$1" | jq -r '.stats[] | select(.label == "charted next") | .n'
 }
@@ -112,9 +129,9 @@ test_omitted_warnings_never_count_as_more_queued() {
   pass "omitted warnings remain separate from omitted queued work"
 }
 
-test_an_omitted_kind_keeps_the_existing_queued_rendering() {
+test_gated_and_actionable_queued_work_badge_differently() {
   local home out
-  home=$(make_home default-kind)
+  home=$(make_home queued-categories)
   out=$(render "$home" '[
     {"id":"with-reason","repo":"sample","title":"With reason","reason":"blocked on prep","dispatchable":true},
     {"id":"no-reason","repo":"sample","title":"No reason","reason":"","dispatchable":true}
@@ -123,13 +140,54 @@ test_an_omitted_kind_keeps_the_existing_queued_rendering() {
     || fail "an omitted kind changed the charted next tally: $out"
   printf '%s' "$out" | jq -e '
     ([.charted[0].badges[] | .text] == ["waiting"])
-      and (.charted[1].badges == [])
-  ' >/dev/null || fail "an omitted kind changed the existing queued badges: $out"
-  pass "an omitted kind renders exactly as queued work always did"
+      and ([.charted[1].badges[] | .text] == ["ready"])
+      and ([.charted[1].badges[] | .tone] == ["online"])
+  ' >/dev/null || fail "gated and actionable queued work did not badge differently: $out"
+  pass "held work reads as waiting while ungated dispatchable work reads as ready"
+}
+
+test_a_merged_pr_reads_differently_from_another_finished_deliverable() {
+  local home out
+  home=$(make_home landed-categories)
+  out=$(render_sections "$home" '[]' '[
+    {"id":"shipped","repo":"sample","what":"Shipped the fix","owner":"crew","pr_url":"https://github.com/o/r/pull/42"},
+    {"id":"probed","repo":"sample","what":"Investigated the outage","owner":"scout"}
+  ]')
+  printf '%s' "$out" | jq -e '.error == ""' >/dev/null \
+    || fail "the board rendered its fail-closed error instead of the fleet: $out"
+  printf '%s' "$out" | jq -e '
+    (.landed | length) == 2
+      and (.landed[0] | .title == "Shipped the fix"
+        and [.badges[] | .text] == ["merged PR"] and .hasPr == true)
+      and (.landed[1] | .title == "Investigated the outage"
+        and [.badges[] | .text] == ["completed"] and .hasPr == false)
+  ' >/dev/null || fail "a merged PR did not read differently from a finished investigation: $out"
+  pass "a landed merged PR badges merged PR while a finished investigation badges completed"
+}
+
+test_underway_rows_badge_their_current_state() {
+  local home out
+  home=$(make_home underway-state)
+  out=$(render_sections "$home" '[
+    {"id":"one","repo":"sample","state":"working","doing":"Building the feature","kind":"ship"},
+    {"id":"two","repo":"sample","state":"validating","doing":"Watching PR checks","kind":"ship"}
+  ]' '[]')
+  printf '%s' "$out" | jq -e '.error == ""' >/dev/null \
+    || fail "the board rendered its fail-closed error instead of the fleet: $out"
+  printf '%s' "$out" | jq -e '
+    (.underway | length) == 2
+      and ([.underway[0].badges[] | .text] == ["working"])
+      and ([.underway[0].badges[] | .tone] == ["online"])
+      and ([.underway[1].badges[] | .text] == ["validating"])
+      and ([.underway[1].badges[] | .tone] == ["info"])
+  ' >/dev/null || fail "underway rows did not badge their distinct current states: $out"
+  pass "underway rows badge active work and validation/monitoring distinctly"
 }
 
 test_a_warning_row_reads_as_a_repair_not_as_queued_work
 test_warnings_are_excluded_from_the_charted_next_count
 test_a_board_of_only_warnings_still_reports_nothing_queued
 test_omitted_warnings_never_count_as_more_queued
-test_an_omitted_kind_keeps_the_existing_queued_rendering
+test_gated_and_actionable_queued_work_badge_differently
+test_a_merged_pr_reads_differently_from_another_finished_deliverable
+test_underway_rows_badge_their_current_state
