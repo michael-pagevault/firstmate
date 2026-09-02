@@ -1,0 +1,115 @@
+{
+  "stats": [
+    {
+      "n": 0,
+      "label": "need you"
+    },
+    {
+      "n": 2,
+      "label": "underway"
+    },
+    {
+      "n": 2,
+      "label": "landed recently"
+    },
+    {
+      "n": 3,
+      "label": "charted next"
+    }
+  ],
+  "charted": [
+    {
+      "title": "Bound clipped row text",
+      "sub": "firstmate",
+      "badges": [
+        {
+          "tone": "online",
+          "text": "ready"
+        }
+      ],
+      "pickable": true
+    },
+    {
+      "title": "Backfill ingest",
+      "sub": "after the Friday freeze · spec-mate",
+      "badges": [
+        {
+          "tone": "warn",
+          "text": "waiting"
+        }
+      ],
+      "pickable": true
+    },
+    {
+      "title": "Held without a stated reason",
+      "sub": "spec-mate",
+      "badges": [
+        {
+          "tone": "warn",
+          "text": "waiting"
+        }
+      ],
+      "pickable": false
+    },
+    {
+      "title": "Main inventory integrity",
+      "sub": "main inventory · firstmate",
+      "badges": [
+        {
+          "tone": "danger",
+          "text": "needs repair"
+        }
+      ],
+      "pickable": false
+    }
+  ],
+  "underway": [
+    {
+      "title": "Implementing the board section labels",
+      "sub": "ship · firstmate",
+      "badges": [
+        {
+          "tone": "online",
+          "text": "working"
+        }
+      ]
+    },
+    {
+      "title": "Watching PR #418 checks",
+      "sub": "ship · spec-mate",
+      "badges": [
+        {
+          "tone": "info",
+          "text": "validating"
+        }
+      ]
+    }
+  ],
+  "landed": [
+    {
+      "title": "Shipped the stale-wake bound",
+      "sub": "firstmate · crew",
+      "badges": [
+        {
+          "tone": "info",
+          "text": "merged PR"
+        }
+      ],
+      "hasPr": true
+    },
+    {
+      "title": "Investigated the worker parking outage",
+      "sub": "firstmate · scout",
+      "badges": [
+        {
+          "tone": "neutral",
+          "text": "completed"
+        }
+      ],
+      "hasPr": false
+    }
+  ],
+  "empty": [],
+  "more": [],
+  "error": ""
+}
